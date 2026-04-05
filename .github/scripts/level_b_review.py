@@ -100,11 +100,15 @@ def strip_env_changes(diff: str) -> str:
     return "\n".join(filtered)
 
 
+_last_api_error: str = ""  # Module-level: last API error for verbose logging
+
+
 def call_gpt(diff: str, invariants: str, file_contents: dict[str, str]) -> str | None:
     """Send full files + diff to GPT-5.4 for review.
 
-    Returns review text or None on failure.
+    Returns review text or None on failure. Sets _last_api_error on failure.
     """
+    global _last_api_error
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
         print("[Level B] OPENAI_API_KEY not set", file=sys.stderr)
@@ -157,6 +161,7 @@ def call_gpt(diff: str, invariants: str, file_contents: dict[str, str]) -> str |
                 data = json.loads(resp.read().decode())
                 return data["choices"][0]["message"]["content"]
         except urllib.error.HTTPError as e:
+            _last_api_error = f"HTTP {e.code}"
             print(f"[Level B] API HTTP {e.code} (attempt {attempt}/3)", file=sys.stderr)
             if e.code in (400, 401, 403):
                 break
@@ -164,6 +169,7 @@ def call_gpt(diff: str, invariants: str, file_contents: dict[str, str]) -> str |
                 time.sleep(delay)
                 delay *= 2
         except Exception as e:
+            _last_api_error = str(e)[:120]
             print(f"[Level B] API error (attempt {attempt}/3): {e}", file=sys.stderr)
             if attempt < 3:
                 time.sleep(delay)
@@ -255,13 +261,14 @@ def main() -> int:
     response = call_gpt(diff, invariants, file_contents)
 
     if response is None:
+        error_detail = f" ({_last_api_error})" if _last_api_error else ""
         report = (
             "## Level B: GPT-5.4 Full-File Review\n\n"
-            "**ERROR**: GPT-5.4 API failed after 3 attempts. Review skipped.\n"
+            f"**ERROR**: GPT-5.4 API failed after 3 attempts{error_detail}. Review skipped.\n"
         )
         with open("/tmp/level_b_result.md", "w", encoding="utf-8") as f:
             f.write(report)
-        write_github_output("UNKNOWN", 0, 0, ["API failed after 3 attempts"])
+        write_github_output("UNKNOWN", 0, 0, [f"API failed after 3 attempts{error_detail}"])
         return 1
 
     verdict = parse_verdict(response)

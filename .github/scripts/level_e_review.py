@@ -67,11 +67,15 @@ def load_invariants() -> str:
     return "(CODE_INVARIANTS.md not found in repo)"
 
 
+_last_api_error: str = ""  # Module-level: last API error for verbose logging
+
+
 def call_grok(file_contents: dict[str, str], invariants: str) -> str | None:
     """Send full files to Grok 4.20 for review.
 
-    Returns review text or None on failure.
+    Returns review text or None on failure. Sets _last_api_error on failure.
     """
+    global _last_api_error
     api_key = os.environ.get("XAI_API_KEY")
     if not api_key:
         print("[Level E] XAI_API_KEY not set", file=sys.stderr)
@@ -120,6 +124,7 @@ def call_grok(file_contents: dict[str, str], invariants: str) -> str | None:
                 data = json.loads(resp.read().decode())
                 return data["choices"][0]["message"]["content"]
         except urllib.error.HTTPError as e:
+            _last_api_error = f"HTTP {e.code}"
             print(f"[Level E] API HTTP {e.code} (attempt {attempt}/3)", file=sys.stderr)
             if e.code in (400, 401, 403):
                 break
@@ -127,6 +132,7 @@ def call_grok(file_contents: dict[str, str], invariants: str) -> str | None:
                 time.sleep(delay)
                 delay *= 2
         except Exception as e:
+            _last_api_error = str(e)[:120]
             print(f"[Level E] API error (attempt {attempt}/3): {e}", file=sys.stderr)
             if attempt < 3:
                 time.sleep(delay)
@@ -211,14 +217,15 @@ def main() -> int:
     response = call_grok(file_contents, invariants)
 
     if response is None:
+        error_detail = f" ({_last_api_error})" if _last_api_error else ""
         report = (
             "## Level E: Grok 4.20 Full-File Review\n\n"
-            "**ERROR**: Grok API failed after 3 attempts. Review skipped.\n\n"
+            f"**ERROR**: Grok API failed after 3 attempts{error_detail}. Review skipped.\n\n"
             "_This check is advisory only and does not block merge._\n"
         )
         with open("/tmp/level_e_result.md", "w", encoding="utf-8") as f:
             f.write(report)
-        write_github_output("UNKNOWN", 0, 0, ["API failed after 3 attempts"])
+        write_github_output("UNKNOWN", 0, 0, [f"API failed after 3 attempts{error_detail}"])
         return 1
 
     verdict = parse_verdict(response)
