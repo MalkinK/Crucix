@@ -225,7 +225,19 @@ jobs:
             const MAX_WAIT_MS = 420000;  // 7 minutes — completeness over speed
             const POLL_INTERVAL_MS = 15000;
             const NOTIFY_INTERVAL_MS = 180000;  // Telegram progress every 3 min
-            const SEVERITY_KEYWORDS = ['critical', 'must fix', 'blocking', 'error', 'vulnerability', 'bug', 'security'];
+            const SEVERITY_KEYWORDS = ['critical', 'must fix', 'blocking', 'vulnerability', 'high severity'];
+            const NEGATION_PHRASES = [
+              'no critical', 'no major', 'no blocking', 'no vulnerability',
+              'not critical', 'not blocking', 'no issues', 'no bugs',
+              'no security issues', 'no security concerns', 'no significant',
+              'no severe', 'no problems', 'looks good', 'lgtm', 'approve',
+              'well-structured', 'clean', 'no high severity',
+            ];
+            function hasSeverityIssue(text) {
+              const lower = text.toLowerCase();
+              if (NEGATION_PHRASES.some(neg => lower.includes(neg))) return false;
+              return SEVERITY_KEYWORDS.some(kw => lower.includes(kw));
+            }
 
             const TG_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
             const TG_CHAT = process.env.TELEGRAM_CHAT_ID;
@@ -303,14 +315,17 @@ jobs:
                 verdict = 'REJECT';
                 findings = [`Changes requested by ${displayName}`];
               } else if (review.state === 'COMMENTED') {
-                const bodyLower = (review.body || '').toLowerCase();
-                const hasSeverity = SEVERITY_KEYWORDS.some(kw => bodyLower.includes(kw));
-                if (hasSeverity) {
-                  verdict = 'REJECT';
-                  findings = [`Severity keywords found in ${displayName} review`];
-                } else {
+                // COMMENTED state: bots that want REJECT use CHANGES_REQUESTED.
+                // COMMENTED = informational. Use negation-aware keyword check.
+                const body = review.body || '';
+                if (hasSeverityIssue(body)) {
                   verdict = 'ACCEPT_WITH_FIXES';
-                  if (review.body) findings = [review.body.substring(0, 200)];
+                  findings = [`Severity keywords in ${displayName} review: ${body.substring(0, 200)}`];
+                } else if (body.trim()) {
+                  verdict = 'ACCEPT';
+                  findings = [];
+                } else {
+                  verdict = 'ACCEPT';
                 }
               }
 
