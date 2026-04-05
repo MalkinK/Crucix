@@ -175,6 +175,7 @@ def write_github_output(verdict: str, critical: int, high: int, findings: list[s
         "high_count": high,
         "findings": findings[:10],
         "model": MODEL,
+        "repo": os.environ.get("GITHUB_REPOSITORY", "unknown"),
     })
     output_file = os.environ.get("GITHUB_OUTPUT", "")
     if output_file:
