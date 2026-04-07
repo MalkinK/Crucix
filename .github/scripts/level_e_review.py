@@ -21,7 +21,7 @@ import urllib.error
 import urllib.request
 
 # API settings
-MODEL = "grok-4.20-0309-reasoning"
+MODEL = "grok-code-fast-1"
 MAX_TOKENS = 2000
 API_TIMEOUT = 60
 MAX_FILE_CHARS = 200000
