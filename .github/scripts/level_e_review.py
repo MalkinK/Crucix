@@ -70,6 +70,23 @@ def load_invariants() -> str:
 _last_api_error: str = ""  # Module-level: last API error for verbose logging
 
 
+def check_api_health() -> bool:
+    """Quick ping to xAI API before full review (5s timeout)."""
+    api_key = os.environ.get("XAI_API_KEY", "")
+    if not api_key:
+        return False
+    try:
+        req = urllib.request.Request(
+            "https://api.x.ai/v1/models",
+            headers={"Authorization": f"Bearer {api_key}"},
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return resp.status == 200
+    except Exception as e:
+        print(f"[Level E] API health check failed: {e}", file=sys.stderr)
+        return False
+
+
 def call_grok(file_contents: dict[str, str], invariants: str) -> str | None:
     """Send full files to Grok 4.20 for review.
 
@@ -191,6 +208,18 @@ def write_github_output(verdict: str, critical: int, high: int, findings: list[s
 
 def main() -> int:
     """Run Level E Grok 4.20 review on PR files."""
+    if not check_api_health():
+        print("[Level E] xAI API unavailable, skipping review", file=sys.stderr)
+        report = (
+            "## Level E: Grok Full-File Review\n\n"
+            "**SKIPPED**: xAI API health check failed. Review not attempted.\n\n"
+            "_This check is advisory only and does not block merge._\n"
+        )
+        with open("/tmp/level_e_result.md", "w", encoding="utf-8") as f:
+            f.write(report)
+        write_github_output("SKIP", 0, 0, ["API health check failed - xAI unavailable"])
+        return 0
+
     changed_files = get_changed_files()
     if not changed_files:
         report = "## Level E: Grok 4.20 Full-File Review\n\nNo files changed. **PASS**\n"
